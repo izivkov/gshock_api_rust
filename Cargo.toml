@@ -1,0 +1,45 @@
+[package]
+name = "gshock-api"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Rust implementation of the G-Shock BLE protocol API"
+
+[lib]
+name = "gshock_api"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { version = "1.38", features = ["full"] }
+btleplug = { version = "0.11", optional = true }
+futures-util = "0.3"
+uuid = "1.8"
+chrono = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+hex = "0.4"
+
+[features]
+default = []
+ble = ["dep:btleplug"]
+
+[[example]]
+name = "gshock_time_server"
+path = "examples/gshock_time_server.rs"
+
+[[example]]
+name = "api_tests"
+path = "examples/api_tests.rs"
+
+[[example]]
+name = "step_counter"
+path = "examples/step_counter.rs"
+
+[[example]]
+name = "app_notifications_tests"
+path = "examples/app_notifications_tests.rs"
+
+[[example]]
+name = "gshock_server_bx"
+path = "examples/gshock_server_bx.rs"
