@@ -1,5 +1,5 @@
-use chrono::{Datelike, Local, Timelike};
-use gshock_api::{Connection, DateTimeParts, GshockAPI, WatchButton};
+use chrono::Local;
+use gshock_api::{Connection, GshockAPI, WatchButton};
 
 fn prompt() {
     println!("==============================================================================================");
@@ -26,21 +26,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let name = api.get_watch_name().await.unwrap_or_default();
                 println!("Watch name: {}", name);
 
-                let now = Local::now();
-                let dt = DateTimeParts {
-                    year: now.year() as u16,
-                    month: now.month() as u8,
-                    day: now.day() as u8,
-                    hour: now.hour() as u8,
-                    minute: now.minute() as u8,
-                    second: now.second() as u8,
-                    weekday: now.weekday().num_days_from_monday() as u8,
-                    nanosecond: now.nanosecond(),
-                };
-
-                println!("Running GW-BX5600 time sequence for {:?}", dt);
-                api.set_time(dt).await?;
-                println!("GW-BX5600 time sequence complete at {}", now.format("%Y-%m-%d %H:%M:%S"));
+                println!("Running GW-BX5600 time sequence...");
+                api.set_system_time(0).await?;
+                println!("GW-BX5600 time sequence complete at {}", Local::now().format("%Y-%m-%d %H:%M:%S"));
             }
 
             connection.disconnect().await?;

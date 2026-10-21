@@ -1,6 +1,5 @@
-use chrono::{Datelike, Local, Timelike};
 use gshock_api::{
-    Alarm, AppNotification, Connection, DateTimeParts, GshockAPI, NotificationType,
+    Alarm, AppNotification, Connection, GshockAPI, NotificationType,
 };
 
 fn prompt() {
@@ -39,19 +38,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let steps_today = api.get_step_count_today().await?;
         println!("Steps Today: {}", steps_today);
 
-        // Time sync
-        let now = Local::now();
-        let dt = DateTimeParts {
-            year: now.year() as u16,
-            month: now.month() as u8,
-            day: now.day() as u8,
-            hour: now.hour() as u8,
-            minute: now.minute() as u8,
-            second: now.second() as u8,
-            weekday: now.weekday().num_days_from_monday() as u8,
-            nanosecond: now.nanosecond(),
-        };
-        api.set_time(dt).await?;
+        // Time sync using current system date & time automatically
+        api.set_system_time(0).await?;
         println!("Time synced successfully.");
 
         // Alarms

@@ -1,6 +1,6 @@
-use chrono::{Datelike, Local, Timelike};
+use chrono::Local;
 use clap::Parser;
-use gshock_api::{Connection, DateTimeParts, GshockAPI, WatchButton};
+use gshock_api::{Connection, GshockAPI, WatchButton};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "G-Shock Time Sync Server", long_about = None)]
@@ -30,54 +30,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     prompt();
 
     loop {
-        println!("Waiting for Casio BLE watch connection...");
+        println!("Waiting for connection...");
         let mut connection = Connection::new();
-        match connection.connect().await {
-            Ok(true) => {
-                println!("Connected to watch!");
-                let mut api = GshockAPI::new(&connection);
 
-                let button = api.get_pressed_button().await.unwrap_or(WatchButton::NoButton);
-                if !matches!(button, WatchButton::LowerRight | WatchButton::NoButton | WatchButton::LowerLeft) {
-                    println!("Ignored press for button: {:?}", button);
-                    let _ = connection.disconnect().await;
-                    continue;
-                }
+        if connection.connect().await? {
+            println!("Connected...");
+            let mut api = GshockAPI::new(&connection);
 
-                let watch_name = api.get_watch_name().await.unwrap_or_default();
-                println!("Watch name: {}", watch_name);
+            let button = api.get_pressed_button().await.unwrap_or(WatchButton::NoButton);
+            if !matches!(button, WatchButton::LowerRight | WatchButton::NoButton | WatchButton::LowerLeft) {
+                println!("Button {:?} pressed, skipping time set...", button);
+                let _ = connection.disconnect().await;
+                continue;
+            }
 
-                let now = Local::now();
-                let adjusted_now = now + chrono::Duration::seconds(cli.fine_adjustment_secs as i64);
+            let watch_name = api.get_watch_name().await.unwrap_or_default();
+            println!("name: {}", watch_name);
 
-                let dt = DateTimeParts {
-                    year: adjusted_now.year() as u16,
-                    month: adjusted_now.month() as u8,
-                    day: adjusted_now.day() as u8,
-                    hour: adjusted_now.hour() as u8,
-                    minute: adjusted_now.minute() as u8,
-                    second: adjusted_now.second() as u8,
-                    weekday: adjusted_now.weekday().num_days_from_monday() as u8,
-                    nanosecond: adjusted_now.nanosecond(),
-                };
+            let fine_adjustment_secs = cli.fine_adjustment_secs as i64;
+            if let Err(e) = api.set_system_time(fine_adjustment_secs).await {
+                println!("Failed to set time: {}", e);
+            } else {
+                println!(
+                    "Time set at {} on {}",
+                    Local::now().format("%Y-%m-%d %H:%M:%S"),
+                    watch_name
+                );
+            }
 
-                println!("Setting time to: {:?}", dt);
-                if let Err(e) = api.set_time(dt).await {
-                    println!("Failed to set time: {}", e);
-                } else {
-                    println!("Time successfully set at {}", adjusted_now.format("%Y-%m-%d %H:%M:%S"));
-                }
-
+            if !api.model_info().always_connected {
                 let _ = connection.disconnect().await;
             }
-            Ok(false) => {
-                println!("No Casio watch found in scan interval, retrying...");
-            }
-            Err(e) => {
-                println!("Connection error: {}, retrying...", e);
-            }
         }
-
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
     }
 }
