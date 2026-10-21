@@ -1,4 +1,4 @@
-use tokio::sync::mpsc;
+use tokio::sync::broadcast;
 
 #[cfg(feature = "ble")]
 use btleplug::api::{Central, CharPropFlags, Manager as _, Peripheral as _, ScanFilter, WriteType};
@@ -14,30 +14,50 @@ use uuid::Uuid;
 #[cfg(feature = "ble")]
 use crate::casio_constants::*;
 
+pub const CASIO_SERVICE_UUID: &str = "00001804-0000-1000-8000-00805f9b34fb";
+
+/// Set to `false` to easily suppress sent/received BLE screen logs.
+pub const LOG_SENT_RECV: bool = true;
+
+fn log_sent(handle: u16, data: &[u8]) {
+    if LOG_SENT_RECV {
+        println!("[BLE SENT] Handle 0x{:04X} -> {}", handle, hex::encode(data));
+    }
+}
+
+fn log_recv(data: &[u8]) {
+    if LOG_SENT_RECV {
+        println!("[BLE RECV] <- {}", hex::encode(data));
+    }
+}
+
 pub struct Connection {
     #[cfg(feature = "ble")]
     adapter: Option<Adapter>,
     #[cfg(feature = "ble")]
     peripheral: Option<Peripheral>,
-    notification_rx: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
-    _notification_tx: mpsc::UnboundedSender<Vec<u8>>,
+    notification_tx: broadcast::Sender<Vec<u8>>,
 }
 
 impl Connection {
     pub fn new() -> Self {
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, _rx) = broadcast::channel(100);
         Self {
             #[cfg(feature = "ble")]
             adapter: None,
             #[cfg(feature = "ble")]
             peripheral: None,
-            notification_rx: Some(rx),
-            _notification_tx: tx,
+            notification_tx: tx,
         }
     }
 
-    pub fn take_notification_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Vec<u8>>> {
-        self.notification_rx.take()
+    pub fn subscribe_notifications(&self) -> broadcast::Receiver<Vec<u8>> {
+        self.notification_tx.subscribe()
+    }
+
+    pub fn send_notification(&self, data: Vec<u8>) {
+        log_recv(&data);
+        let _ = self.notification_tx.send(data);
     }
 
     #[cfg(feature = "ble")]
@@ -49,6 +69,7 @@ impl Connection {
             return Ok(false);
         }
         let adapter = adapters[0].clone();
+        let casio_service = Uuid::parse_str(CASIO_SERVICE_UUID)?;
 
         loop {
             let _ = adapter.start_scan(ScanFilter::default()).await;
@@ -62,19 +83,12 @@ impl Connection {
             for peripheral in peripherals {
                 if let Ok(Some(props)) = peripheral.properties().await {
                     let name = props.local_name.unwrap_or_default();
-                    if name.starts_with("CASIO")
-                        || name.contains("G-SHOCK")
-                        || name.contains("ECB")
-                        || name.contains("EQB")
-                        || name.contains("GST")
-                        || name.contains("GBD")
-                        || name.contains("GBX")
-                        || name.contains("GPR")
-                        || name.contains("MRG")
-                        || name.contains("GMA")
-                    {
-                        println!("Found Casio watch: {}", name);
+                    let has_casio_service = props.services.iter().any(|uuid| *uuid == casio_service);
+                    let is_casio_name = name.trim().starts_with("CASIO");
+
+                    if has_casio_service || (is_casio_name && !props.services.is_empty()) {
                         if peripheral.connect().await.is_ok() {
+                            println!("Found and connected to Casio watch: {}", name);
                             let _ = peripheral.discover_services().await;
 
                             // Subscribe to notify/indicate characteristics
@@ -88,9 +102,10 @@ impl Connection {
 
                             // Spawn notification listener task
                             if let Ok(mut stream) = peripheral.notifications().await {
-                                let tx = self._notification_tx.clone();
+                                let tx = self.notification_tx.clone();
                                 tokio::spawn(async move {
                                     while let Some(notif) = stream.next().await {
+                                        log_recv(&notif.value);
                                         let _ = tx.send(notif.value);
                                     }
                                 });
@@ -129,6 +144,7 @@ impl Connection {
 
     #[cfg(feature = "ble")]
     pub async fn write(&self, handle: u16, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        log_sent(handle, data);
         if let Some(ref peripheral) = self.peripheral {
             let uuid_str = match handle {
                 0x04 => CASIO_GET_DEVICE_NAME,
@@ -151,7 +167,11 @@ impl Connection {
             };
 
             if let Some(characteristic) = peripheral.characteristics().iter().find(|c| c.uuid == char_uuid) {
-                peripheral.write(characteristic, data, write_type).await?;
+                if let Err(e) = peripheral.write(characteristic, data, write_type).await {
+                    println!("[BLE WRITE WARN] Handle 0x{:04X} write error: {}, ignoring.", handle, e);
+                }
+            } else {
+                println!("[BLE WRITE WARN] Characteristic for handle 0x{:04X} not found on watch.", handle);
             }
         }
         Ok(())
@@ -159,7 +179,7 @@ impl Connection {
 
     #[cfg(not(feature = "ble"))]
     pub async fn write(&self, handle: u16, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-        println!("Simulated write: handle=0x{:04X}, data={:02X?}", handle, data);
+        log_sent(handle, data);
         Ok(())
     }
 

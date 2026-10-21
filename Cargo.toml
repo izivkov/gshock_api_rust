@@ -21,7 +21,7 @@ clap = { version = "4.5", features = ["derive"] }
 hex = "0.4"
 
 [features]
-default = []
+default = ["ble"]
 ble = ["dep:btleplug"]
 
 [[example]]
