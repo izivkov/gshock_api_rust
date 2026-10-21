@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match connection.connect().await {
             Ok(true) => {
                 println!("Connected to watch!");
-                let api = GshockAPI::new(&connection);
+                let mut api = GshockAPI::new(&connection);
 
                 let button = api.get_pressed_button().await.unwrap_or(WatchButton::NoButton);
                 if !matches!(button, WatchButton::LowerRight | WatchButton::NoButton | WatchButton::LowerLeft) {

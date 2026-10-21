@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if connection.connect().await? {
         println!("Connected to watch!");
-        let api = GshockAPI::new(&connection);
+        let mut api = GshockAPI::new(&connection);
 
         let app_info = api.get_app_info().await?;
         println!("App Info: {}", app_info);
