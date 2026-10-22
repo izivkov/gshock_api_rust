@@ -24,9 +24,17 @@ pub mod world_cities_io;
 pub use actions::{BleAction, Write};
 pub use alarms_io::{alarm_request, alarm_request_mtg_b3000};
 pub use app_info_io::{app_info_request, prepare_app_info_response};
+pub use app_notification_io::{
+    NOTIFICATION_XOR_KEY, decode_watch_notification, notification_write,
+};
 pub use button_pressed_io::{WatchButton, button_request, decode_button_pressed};
 pub use dst_for_world_cities_io::{dst_world_cities_request, set_dst_for_world_city};
 pub use dst_watch_state_io::{dst_watch_state_request, set_dst_watch_state};
+pub use events_io::{
+    decode_reminder_time, decode_reminder_time_packet, decode_reminder_title_packet,
+    encode_reminder_time, encode_reminder_time_packet, encode_reminder_title_packet,
+    reminder_set_commands, reminder_time_request, reminder_title_request,
+};
 pub use gw_bx5600_time_io::{build_world_city_records, city_record};
 pub use home_time_io::{home_time_request, parse_home_city};
 pub use packet::Protocol;
@@ -35,6 +43,7 @@ pub use settings_io::{
     BasicSettings, DateFormat, Language, LightDuration, Settings, decode_settings,
     encode_mtg_b3000_settings, encode_settings, settings_request,
 };
+pub use step_counter_io::{StepCounterTransfer, request as step_counter_request};
 pub use time_adjustment_io::{
     decode_time_adjustment, encode_time_adjustment, time_adjustment_request,
 };

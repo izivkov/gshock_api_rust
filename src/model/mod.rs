@@ -11,4 +11,4 @@ pub use app_notification::{
 };
 pub use event::{Event, EventDate, RepeatPeriod};
 pub use settings::{BasicSettings, DateFormat, Language, LightDuration, Settings};
-pub use step_counter_data::StepCounterData;
+pub use step_counter_data::{DailyHistoryEntry, HourlyActivity, StepCounterData};

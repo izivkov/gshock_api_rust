@@ -1,12 +1,13 @@
 use crate::iolib::{
-    BleAction, WatchButton, WatchConditionValue, alarm_request, app_info_request, button_request,
-    decode_button_pressed, decode_settings, decode_time_adjustment, decode_timer,
-    decode_watch_condition, decode_watch_name, home_time_request, parse_home_city,
-    prepare_app_info_response, settings_request, time_adjustment_request, timer_request,
-    watch_condition_request, watch_name_request,
+    alarm_request, app_info_request, button_request, decode_button_pressed, decode_settings,
+    decode_time_adjustment, decode_timer, decode_watch_condition, decode_watch_name,
+    home_time_request, parse_home_city, prepare_app_info_response, settings_request,
+    time_adjustment_request, timer_request, watch_condition_request, watch_name_request, BleAction,
+    WatchButton, WatchConditionValue,
 };
+use crate::iolib::{decode_reminder_time_packet, decode_reminder_title_packet};
 use crate::model::{
-    Alarm, LightDuration, Settings, StepCounterData, alarms::decode_alarms_payload,
+    alarms::decode_alarms_payload, Alarm, Event, LightDuration, Settings, StepCounterData,
 };
 use crate::protocol_handler;
 use crate::watch_info::ModelInfo;
@@ -26,6 +27,8 @@ pub enum DispatchedPayload {
     TimeAdjustment(Option<(bool, u8)>),
     StepCounter(Option<StepCounterData>),
     HomeTime(String),
+    ReminderTitle(u8, Option<String>),
+    ReminderTime(u8, Event),
     Unknown(u8, Vec<u8>),
 }
 
@@ -54,6 +57,14 @@ impl MessageDispatcher {
             0x11 => DispatchedPayload::TimeAdjustment(decode_time_adjustment(payload)),
             0x26 => DispatchedPayload::StepCounter(StepCounterData::parse(payload)),
             0x24 => DispatchedPayload::HomeTime(parse_home_city(payload)),
+            0x30 => {
+                let (event_number, title) = decode_reminder_title_packet(payload)?;
+                DispatchedPayload::ReminderTitle(event_number, title)
+            }
+            0x31 => {
+                let (event_number, event) = decode_reminder_time_packet(payload)?;
+                DispatchedPayload::ReminderTime(event_number, event)
+            }
             _ => DispatchedPayload::Unknown(key, payload.to_vec()),
         };
 
@@ -87,5 +98,30 @@ mod tests {
 
         let timer_reqs = MessageDispatcher::action_request("GET_TIMER");
         assert_eq!(timer_reqs.len(), 1);
+    }
+
+    #[test]
+    fn dispatches_reminder_title_and_time_packets() {
+        let model_info =
+            crate::watch_info::resolve_model_info(crate::watch_info::WatchModel::Generic);
+        let title = MessageDispatcher::dispatch(&[0x30, 2, b'G', b'Y', b'M'], &model_info);
+        assert_eq!(
+            title,
+            Some(DispatchedPayload::ReminderTitle(2, Some("GYM".to_string())))
+        );
+
+        let time = MessageDispatcher::dispatch(
+            &[
+                0x31, 2, 0x05, 0x26, 0x05, 0x30, 0x26, 0x06, 0x01, 0x22, 0x00,
+            ],
+            &model_info,
+        );
+        let Some(DispatchedPayload::ReminderTime(event_number, event)) = time else {
+            panic!("expected a reminder time payload");
+        };
+        assert_eq!(event_number, 2);
+        assert!(event.enabled);
+        assert_eq!(event.repeat_period, crate::model::RepeatPeriod::Weekly);
+        assert_eq!(event.days_of_week, vec!["MONDAY", "FRIDAY"]);
     }
 }

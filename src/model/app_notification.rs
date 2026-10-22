@@ -108,19 +108,20 @@ pub fn write_length_prefixed_string(text: &str) -> Vec<u8> {
 }
 
 pub fn read_length_prefixed_string(buf: &[u8], offset: usize) -> Result<(String, usize), ()> {
-    if offset + 2 > buf.len() {
+    let prefix_end = offset.checked_add(2).ok_or(())?;
+    if prefix_end > buf.len() {
         return Err(());
     }
     let len = buf[offset] as usize;
     if buf[offset + 1] != 0x00 {
         return Err(());
     }
-    let start = offset + 2;
-    let end = start + len;
+    let start = prefix_end;
+    let end = start.checked_add(len).ok_or(())?;
     if end > buf.len() {
         return Err(());
     }
-    let s = String::from_utf8_lossy(&buf[start..end]).to_string();
+    let s = String::from_utf8(buf[start..end].to_vec()).map_err(|_| ())?;
     Ok((s, end))
 }
 
@@ -145,7 +146,11 @@ pub fn decode_notification_packet(buf: &[u8]) -> Result<AppNotification, ()> {
     let notif_type = NotificationType::try_from(buf[offset])?;
     offset += 1;
 
-    let timestamp = String::from_utf8_lossy(&buf[offset..offset + 15]).to_string();
+    let timestamp_bytes = &buf[offset..offset + 15];
+    if !timestamp_bytes.is_ascii() {
+        return Err(());
+    }
+    let timestamp = String::from_utf8(timestamp_bytes.to_vec()).map_err(|_| ())?;
     offset += 15;
 
     let (app, next_offset) = read_length_prefixed_string(buf, offset)?;
@@ -181,5 +186,21 @@ mod tests {
         let encoded = encode_notification_packet(&notif);
         let decoded = decode_notification_packet(&encoded).unwrap();
         assert_eq!(decoded, notif);
+    }
+
+    #[test]
+    fn rejects_invalid_utf8_fields_and_non_ascii_timestamps() {
+        assert!(read_length_prefixed_string(&[1, 0, 0xff], 0).is_err());
+
+        let mut packet = encode_notification_packet(&AppNotification::new(
+            NotificationType::Generic,
+            "20260516T233000",
+            "App",
+            "Title",
+            "Text",
+            "",
+        ));
+        packet[7] = 0xff;
+        assert!(decode_notification_packet(&packet).is_err());
     }
 }

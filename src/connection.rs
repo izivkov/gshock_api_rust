@@ -19,6 +19,12 @@ pub const CASIO_SERVICE_UUID: &str = "00001804-0000-1000-8000-00805f9b34fb";
 /// Set to `false` to easily suppress sent/received BLE screen logs.
 pub const LOG_SENT_RECV: bool = true;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CharacteristicNotification {
+    pub handle: u16,
+    pub data: Vec<u8>,
+}
+
 fn log_sent(handle: u16, data: &[u8]) {
     if LOG_SENT_RECV {
         println!("[BLE SENT] Handle 0x{:04X} -> {}", handle, hex::encode(data));
@@ -37,17 +43,20 @@ pub struct Connection {
     #[cfg(feature = "ble")]
     peripheral: Option<Peripheral>,
     notification_tx: broadcast::Sender<Vec<u8>>,
+    characteristic_notification_tx: broadcast::Sender<CharacteristicNotification>,
 }
 
 impl Connection {
     pub fn new() -> Self {
         let (tx, _rx) = broadcast::channel(100);
+        let (characteristic_tx, _characteristic_rx) = broadcast::channel(100);
         Self {
             #[cfg(feature = "ble")]
             adapter: None,
             #[cfg(feature = "ble")]
             peripheral: None,
             notification_tx: tx,
+            characteristic_notification_tx: characteristic_tx,
         }
     }
 
@@ -55,9 +64,23 @@ impl Connection {
         self.notification_tx.subscribe()
     }
 
+    pub fn subscribe_characteristic_notifications(
+        &self,
+    ) -> broadcast::Receiver<CharacteristicNotification> {
+        self.characteristic_notification_tx.subscribe()
+    }
+
     pub fn send_notification(&self, data: Vec<u8>) {
         log_recv(&data);
         let _ = self.notification_tx.send(data);
+    }
+
+    pub fn send_characteristic_notification(&self, handle: u16, data: Vec<u8>) {
+        log_recv(&data);
+        let _ = self.notification_tx.send(data.clone());
+        let _ = self
+            .characteristic_notification_tx
+            .send(CharacteristicNotification { handle, data });
     }
 
     #[cfg(feature = "ble")]
@@ -103,10 +126,22 @@ impl Connection {
                             // Spawn notification listener task
                             if let Ok(mut stream) = peripheral.notifications().await {
                                 let tx = self.notification_tx.clone();
+                                let characteristic_tx = self.characteristic_notification_tx.clone();
                                 tokio::spawn(async move {
                                     while let Some(notif) = stream.next().await {
                                         log_recv(&notif.value);
-                                        let _ = tx.send(notif.value);
+                                        let handle = match notif.uuid.to_string().as_str() {
+                                            CASIO_DATA_REQUEST_SP_CHARACTERISTIC_UUID => 0x0011,
+                                            CASIO_CONVOY_CHARACTERISTIC_UUID => 0x0014,
+                                            CASIO_ALL_FEATURES_CHARACTERISTIC_UUID => 0x000e,
+                                            CASIO_NOTIFICATION_CHARACTERISTIC_UUID => 0x000d,
+                                            _ => 0,
+                                        };
+                                        let _ = tx.send(notif.value.clone());
+                                        let _ = characteristic_tx.send(CharacteristicNotification {
+                                            handle,
+                                            data: notif.value,
+                                        });
                                     }
                                 });
                             }

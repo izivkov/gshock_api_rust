@@ -39,7 +39,7 @@ pub mod world_cities;
 pub use api::GshockAPI;
 pub use casio_constants::*;
 pub use casio_time_zone_helper::{CasioTimeZone, LatLon, find_time_zone, get_world_city_coordinates};
-pub use connection::Connection;
+pub use connection::{CharacteristicNotification, Connection};
 pub use iolib::*;
 pub use message_dispatcher::{DispatchedPayload, MessageDispatcher};
 pub use model::*;

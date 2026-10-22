@@ -66,10 +66,14 @@ the watch supplied the value.
 | `get_home_time(&self)` | Home-city name; falls back to `"UTC"`. |
 | `get_watch_condition(&self)` | `WatchConditionValue` with battery percentage and temperature; falls back to 80% and 22 degrees. |
 | `get_step_count_today(&self)` | Today's step count, or `0` when the watch has no supported counter or no data is available. |
-| `get_step_count(&self, peek: bool)` | `StepCounterData`; unavailable models or missing responses return `StepCounterData::unavailable()`. The `peek` argument is currently ignored. |
+| `get_step_count(&self, peek: bool)` | Read and parse the complete step-counter transfer. `peek = true` leaves the watch transaction open; `false` ends it after the payload is received. Unsupported models or timed-out transfers return `StepCounterData::unavailable()`. |
 | `get_dst_watch_state_raw(&self, state: u8)` | Raw DST state bytes; returns a fallback payload on timeout. |
 | `get_dst_for_world_cities_raw(&self, city_num: u8)` | Raw DST data for a city; returns a fallback payload on timeout. |
 | `get_world_cities_raw(&self, city_num: u8)` | Raw city data; returns a UTC city payload on timeout. |
+
+`StepCounterData` includes the decoded timestamp, current total, daily history,
+hourly activity and intensity buckets, pending activity, distance totals, and
+distance components when those fields are present in the watch payload.
 
 ### Time
 
@@ -95,6 +99,9 @@ can be constructed with `Alarm::new(hour, minute, enabled, has_hourly_chime)`.
 | --- | --- |
 | `get_alarms(&self)` | Read alarms; falls back to one enabled alarm at 07:00 if no alarm response arrives. |
 | `set_alarms(&self, alarms: &[Alarm])` | Write the first and, when provided, secondary alarms. An empty slice does nothing. |
+| `get_event_from_watch(&self, event_number: u8)` | Read one reminder slot, returning `None` for an unused or unsupported slot. |
+| `get_reminders(&self)` | Read reminder slots 1 through 5, preserving each slot as `Some(Event)` or `None` when unused or unsupported. |
+| `set_reminders(&self, events: &[Event])` | Write enabled reminders, with title and time packets for each event. |
 | `get_timer(&self)` | Timer duration in seconds; falls back to `600`. |
 | `set_timer(&self, seconds: u32)` | Set the timer duration in seconds, using the MTG-B3000 encoding when applicable. |
 | `get_time_adjustment(&self)` | Returns `(enabled, minutes_after_hour)`; falls back to `(true, 0)`. |

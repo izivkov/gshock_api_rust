@@ -173,24 +173,15 @@ impl<'a> GshockAPI<'a> {
         if !self.model_info.has_step_counter {
             return Ok(0);
         }
-        let data = self.get_step_count(true).await?;
+        let data = self.get_step_count(false).await?;
         Ok(data.current_day_steps.unwrap_or(0))
     }
 
-    pub async fn get_step_count(&self, _peek: bool) -> Result<StepCounterData, Box<dyn std::error::Error>> {
+    pub async fn get_step_count(&self, peek: bool) -> Result<StepCounterData, Box<dyn std::error::Error>> {
         if !self.model_info.has_step_counter {
             return Ok(StepCounterData::unavailable());
         }
-        self.await_response(
-            BleAction::Write(Write::new(0x0011, vec![0x00, 0x11, 0x00, 0x00, 0x00])),
-            |p| match p {
-                DispatchedPayload::StepCounter(data) => data.clone(),
-                _ => None,
-            },
-            3,
-            StepCounterData::unavailable(),
-        )
-        .await
+        crate::iolib::step_counter_io::request(self.connection, peek).await
     }
 
     pub async fn get_watch_condition(&self) -> Result<WatchConditionValue, Box<dyn std::error::Error>> {
@@ -353,6 +344,86 @@ impl<'a> GshockAPI<'a> {
         Ok(())
     }
 
+    pub async fn get_event_from_watch(
+        &self,
+        event_number: u8,
+    ) -> Result<Option<Event>, Box<dyn std::error::Error>> {
+        if !self.model_info.has_reminders {
+            return Ok(None);
+        }
+
+        let mut rx = self.connection.subscribe_notifications();
+        for cmd in [
+            reminder_title_request(event_number),
+            reminder_time_request(event_number),
+        ] {
+            if let BleAction::Write(w) = cmd {
+                self.connection.write(w.handle, &w.data).await?;
+            }
+        }
+
+        let deadline = Duration::from_secs(3);
+        let start = std::time::Instant::now();
+        let mut title = None;
+        let mut reminder_time = None;
+
+        while start.elapsed() < deadline {
+            let remaining = deadline.saturating_sub(start.elapsed());
+            match timeout(remaining, rx.recv()).await {
+                Ok(Ok(bytes)) => match MessageDispatcher::dispatch(&bytes, &self.model_info) {
+                    Some(DispatchedPayload::ReminderTitle(number, value))
+                        if number == event_number =>
+                    {
+                        if value.is_none() {
+                            return Ok(None);
+                        }
+                        title = value;
+                    }
+                    Some(DispatchedPayload::ReminderTime(number, event))
+                        if number == event_number =>
+                    {
+                        reminder_time = Some(event);
+                    }
+                    _ => {}
+                },
+                _ => break,
+            }
+
+            if title.is_some() && reminder_time.is_some() {
+                let mut event = reminder_time.take().expect("checked above");
+                event.title = title.take().expect("checked above");
+                return Ok(Some(event));
+            }
+        }
+
+        Ok(None)
+    }
+
+    pub async fn get_reminders(&self) -> Result<Vec<Option<Event>>, Box<dyn std::error::Error>> {
+        if !self.model_info.has_reminders {
+            return Ok(vec![None; 5]);
+        }
+
+        let mut events = Vec::new();
+        for event_number in 1..=5 {
+            events.push(self.get_event_from_watch(event_number).await?);
+        }
+        Ok(events)
+    }
+
+    pub async fn set_reminders(&self, events: &[Event]) -> Result<(), Box<dyn std::error::Error>> {
+        if !self.model_info.has_reminders {
+            return Ok(());
+        }
+
+        for cmd in reminder_set_commands(events) {
+            if let BleAction::Write(w) = cmd {
+                self.connection.write(w.handle, &w.data).await?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn get_timer(&self) -> Result<u32, Box<dyn std::error::Error>> {
         self.await_response(
             timer_request(),
@@ -431,8 +502,11 @@ impl<'a> GshockAPI<'a> {
         &self,
         notification: &AppNotification,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let payload = encode_notification_packet(notification);
-        self.connection.write(0x000E, &payload).await?;
+        let command = notification_write(notification)
+            .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
+        if let BleAction::Write(write) = command {
+            self.connection.write(write.handle, &write.data).await?;
+        }
         Ok(())
     }
 }
